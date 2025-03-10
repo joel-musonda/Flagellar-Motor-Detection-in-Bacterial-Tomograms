@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Tomogram Analyzer for Flagellar Motors</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#5D5CDE",
+              secondary: "#4F46E5",
+              accent: "#7C3AED",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      .dark {
+        color-scheme: dark;
+      }
+      .dark .three-container canvas {
+        filter: brightness(0.9);
+      }
+      .custom-loader {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        border: 3px solid transparent;
+        border-top-color: #5d5cde;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .volume-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #5d5cde;
+        cursor: pointer;
+      }
+      .volume-slider::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #5d5cde;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body
+    class="min-h-screen bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors duration-300"
+  >
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+      <header class="mb-8">
+        <h1 class="text-3xl md:text-4xl font-bold text-center mb-4">
+          Flagellar Motor Detection in Bacterial Tomograms
+        </h1>
+        <p
+          class="text-center text-gray-600 dark:text-gray-400 max-w-3xl mx-auto"
+        >
+          Train machine learning models to automatically identify flagellar
+          motors in 3D tomographic reconstructions of bacterial cells.
+        </p>
+      </header>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Left Panel: Controls & Settings -->
+        <div
+          class="lg:col-span-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 shadow-md"
+        >
+          <div class="mb-6">
+            <h2
+              class="text-xl font-semibold mb-4 border-b border-gray-300 dark:border-gray-700 pb-2"
+            >
+              Data Input
+            </h2>
+
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium mb-1"
+                  >Sample Dataset</label
+                >
+                <select
+                  id="sampleDataset"
+                  class="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-700 text-base"
+                >
+                  <option value="">-- Select a sample --</option>
+                  <option value="sample1">E. coli Flagellar Motor</option>
+                  <option value="sample2">Salmonella Tomogram</option>
+                  <option value="sample3">Vibrio cholerae</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1"
+                  >Upload Tomogram File</label
+                >
+                <div class="flex items-center justify-center w-full">
+                  <label
+                    class="flex flex-col w-full h-32 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-700 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <div class="flex flex-col items-center justify-center pt-7">
+                      <svg
+                        class="w-8 h-8 text-gray-500 dark:text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                        ></path>
+                      </svg>
+                      <p class="pt-1 text-sm text-gray-500 dark:text-gray-400">
+                        Upload .mrc or .hdf format
+                      </p>
+                    </div>
+                    <input id="fileUpload" type="file" class="hidden" />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-6">
+            <h2
+              class="text-xl font-semibold mb-4 border-b border-gray-300 dark:border-gray-700 pb-2"
+            >
+              Model Configuration
+            </h2>
+
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium mb-1"
+                  >Model Architecture</label
+                >
+                <select
+                  id="modelArchitecture"
+                  class="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-700 text-base"
+                >
+                  <option value="3dcnn">3D Convolutional Neural Network</option>
+                  <option value="unet">3D U-Net</option>
+                  <option value="resnet">3D ResNet</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1"
+                  >Learning Rate</label
+                >
+                <input
+                  type="range"
+                  id="learningRate"
+                  min="0.0001"
+                  max="0.01"
+                  step="0.0001"
+                  value="0.001"
+                  class="volume-slider w-full h-2 bg-gray-300 dark:bg-gray-700 rounded-lg appearance-none"
+                />
+                <div class="text-sm text-center mt-1" id="learningRateValue">
+                  0.001
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1">Batch Size</label>
+                <select
+                  id="batchSize"
+                  class="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-700 text-base"
+                >
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="4" selected>4</option>
+                  <option value="8">8</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1"
+                  >Data Augmentation</label
+                >
+                <div class="space-y-2">
+                  <label class="inline-flex items-center">
+                    <input
+                      type="checkbox"
+                      class="form-checkbox rounded text-primary"
+                      checked
+                    />
+                    <span class="ml-2">Rotation</span>
+                  </label>
+                  <label class="inline-flex items-center">
+                    <input
+                      type="checkbox"
+                      class="form-checkbox rounded text-primary"
+                      checked
+                    />
+                    <span class="ml-2">Noise Injection</span>
+                  </label>
+                  <label class="inline-flex items-center">
+                    <input
+                      type="checkbox"
+                      class="form-checkbox rounded text-primary"
+                    />
+                    <span class="ml-2">Contrast Adjustment</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex space-x-2">
+            <button
+              id="trainButton"
+              class="w-1/2 py-2 px-4 bg-primary hover:bg-secondary text-white font-medium rounded-md transition-colors"
+            >
+              Train Model
+            </button>
+            <button
+              id="detectButton"
+              disabled
+              class="w-1/2 py-2 px-4 bg-gray-400 text-white font-medium rounded-md cursor-not-allowed"
+            >
+              Detect Motors
+            </button>
+          </div>
+        </div>
+
+        <!-- Middle & Right Panels: Visualization Area -->
+        <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- 3D Visualization -->
+          <div
+            class="bg-gray-100 dark:bg-gray-800 rounded-lg shadow-md overflow-hidden h-[500px]"
+          >
+            <div
+              class="flex justify-between items-center p-3 border-b border-gray-300 dark:border-gray-700"
+            >
+              <h2 class="text-lg font-semibold">3D Tomogram</h2>
+              <div class="flex space-x-2">
+                <button
+                  id="resetViewButton"
+                  class="p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+                  title="Reset View"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-5 w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div
+              id="tomogramContainer"
+              class="three-container w-full h-[450px] relative"
+            >
+              <div
+                id="tomogramPlaceholder"
+                class="absolute inset-0 flex flex-col items-center justify-center bg-gray-200 dark:bg-gray-700"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-16 w-16 text-gray-400 dark:text-gray-500 mb-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"
+                  />
+                </svg>
+                <p class="text-gray-500 dark:text-gray-400 text-center px-4">
+                  Select a sample dataset or upload your own tomogram to
+                  visualize
+                </p>
+              </div>
+              <div
+                id="tomogramSliceControls"
+                class="absolute bottom-4 left-0 right-0 flex justify-center opacity-0 transition-opacity"
+              >
+                <div
+                  class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-2 flex items-center space-x-2"
+                >
+                  <span class="text-xs font-medium">Slice:</span>
+                  <input
+                    type="range"
+                    id="slicePosition"
+                    min="0"
+                    max="100"
+                    value="50"
+                    class="volume-slider w-32 h-2 bg-gray-300 dark:bg-gray-700 rounded-lg appearance-none"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Results Panel -->
+          <div
+            class="bg-gray-100 dark:bg-gray-800 rounded-lg shadow-md overflow-hidden h-[500px]"
+          >
+            <div
+              class="flex justify-between items-center p-3 border-b border-gray-300 dark:border-gray-700"
+            >
+              <h2 class="text-lg font-semibold">Detection Results</h2>
+              <div
+                id="resultsSummary"
+                class="text-sm font-medium text-gray-500 dark:text-gray-400"
+              >
+                No results yet
+              </div>
+            </div>
+            <div id="resultsContainer" class="h-[450px] overflow-auto">
+              <div
+                id="resultsPlaceholder"
+                class="h-full flex flex-col items-center justify-center"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-16 w-16 text-gray-400 dark:text-gray-500 mb-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  />
+                </svg>
+                <p class="text-gray-500 dark:text-gray-400 text-center px-4">
+                  Train and run the model to detect flagellar motors
+                </p>
+              </div>
+              <div id="trainingResults" class="hidden p-4">
+                <div class="mb-4">
+                  <h3 class="text-lg font-medium mb-2">Training Progress</h3>
+                  <div
+                    class="w-full bg-gray-300 dark:bg-gray-700 rounded-full h-2.5"
+                  >
+                    <div
+                      id="trainingProgressBar"
+                      class="bg-primary h-2.5 rounded-full"
+                      style="width: 0%"
+                    ></div>
+                  </div>
+                  <div class="flex justify-between mt-1 text-sm">
+                    <span id="trainingEpoch">Epoch: 0/100</span>
+                    <span id="trainingLoss">Loss: N/A</span>
+                  </div>
+                </div>
+                <div
+                  id="trainingLog"
+                  class="text-sm font-mono bg-gray-200 dark:bg-gray-700 p-3 rounded-md h-48 overflow-auto"
+                ></div>
+              </div>
+              <div id="detectionResults" class="hidden p-4">
+                <h3 class="text-lg font-medium mb-4">
+                  Detected Flagellar Motors
+                </h3>
+                <div id="detectionList" class="space-y-2"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Training Data Panel -->
+          <div
+            class="md:col-span-2 bg-gray-100 dark:bg-gray-800 rounded-lg shadow-md overflow-hidden"
+          >
+            <div
+              class="flex justify-between items-center p-3 border-b border-gray-300 dark:border-gray-700"
+            >
+              <h2 class="text-lg font-semibold">Model Information</h2>
+              <div class="flex space-x-2">
+                <button
+                  id="exportModelButton"
+                  disabled
+                  class="py-1 px-3 text-sm bg-primary hover:bg-secondary text-white font-medium rounded-md transition-colors cursor-not-allowed"
+                >
+                  Export Model
+                </button>
+              </div>
+            </div>
+            <div class="p-4">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-white dark:bg-gray-700 p-3 rounded-md shadow">
+                  <h3
+                    class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1"
+                  >
+                    Architecture
+                  </h3>
+                  <p id="infoArchitecture" class="text-lg font-semibold">
+                    3D CNN
+                  </p>
+                </div>
+                <div class="bg-white dark:bg-gray-700 p-3 rounded-md shadow">
+                  <h3
+                    class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1"
+                  >
+                    Precision
+                  </h3>
+                  <p id="infoPrecision" class="text-lg font-semibold">N/A</p>
+                </div>
+                <div class="bg-white dark:bg-gray-700 p-3 rounded-md shadow">
+                  <h3
+                    class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1"
+                  >
+                    Recall
+                  </h3>
+                  <p id="infoRecall" class="text-lg font-semibold">N/A</p>
+                </div>
+              </div>
+              <div class="mt-4 bg-white dark:bg-gray-700 p-3 rounded-md shadow">
+                <h3
+                  class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1"
+                >
+                  Model Architecture
+                </h3>
+                <div
+                  id="modelArchitectureVisualization"
+                  class="w-full h-24 flex items-center justify-center"
+                >
+                  <div class="flex space-x-1">
+                    <div
+                      class="h-16 w-12 bg-blue-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Input
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-green-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Conv3D
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-green-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Conv3D
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-yellow-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Pool
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-green-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Conv3D
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-green-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Conv3D
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-yellow-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Pool
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-purple-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Dense
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-purple-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Dense
+                    </div>
+                    <div
+                      class="h-16 w-12 bg-red-500 rounded flex items-center justify-center text-white text-xs"
+                    >
+                      Output
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading Overlay -->
+      <div
+        id="loadingOverlay"
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden"
+      >
+        <div
+          class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full"
+        >
+          <div class="flex items-center justify-center mb-4">
+            <div class="custom-loader"></div>
+          </div>
+          <h3 id="loadingTitle" class="text-xl font-bold text-center mb-2">
+            Processing...
+          </h3>
+          <p
+            id="loadingMessage"
+            class="text-center text-gray-600 dark:text-gray-400"
+          ></p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Check dark mode preference
+      if (
+        window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches
+      ) {
+        document.documentElement.classList.add("dark");
+      }
+      window
+        .matchMedia("(prefers-color-scheme: dark)")
+        .addEventListener("change", (event) => {
+          if (event.matches) {
+            document.documentElement.classList.add("dark");
+          } else {
+            document.documentElement.classList.remove("dark");
+          }
+        });
+
+      // DOM elements
+      const elements = {
+        sampleDataset: document.getElementById("sampleDataset"),
+        fileUpload: document.getElementById("fileUpload"),
+        learningRate: document.getElementById("learningRate"),
+        learningRateValue: document.getElementById("learningRateValue"),
+        trainButton: document.getElementById("trainButton"),
+        detectButton: document.getElementById("detectButton"),
+        tomogramContainer: document.getElementById("tomogramContainer"),
+        tomogramPlaceholder: document.getElementById("tomogramPlaceholder"),
+        tomogramSliceControls: document.getElementById("tomogramSliceControls"),
+        slicePosition: document.getElementById("slicePosition"),
+        resultsContainer: document.getElementById("resultsContainer"),
+        resultsPlaceholder: document.getElementById("resultsPlaceholder"),
+        trainingResults: document.getElementById("trainingResults"),
+        detectionResults: document.getElementById("detectionResults"),
+        trainingLog: document.getElementById("trainingLog"),
+        trainingProgressBar: document.getElementById("trainingProgressBar"),
+        trainingEpoch: document.getElementById("trainingEpoch"),
+        trainingLoss: document.getElementById("trainingLoss"),
+        detectionList: document.getElementById("detectionList"),
+        modelArchitecture: document.getElementById("modelArchitecture"),
+        loadingOverlay: document.getElementById("loadingOverlay"),
+        loadingTitle: document.getElementById("loadingTitle"),
+        loadingMessage: document.getElementById("loadingMessage"),
+        infoArchitecture: document.getElementById("infoArchitecture"),
+        infoPrecision: document.getElementById("infoPrecision"),
+        infoRecall: document.getElementById("infoRecall"),
+        resultsSummary: document.getElementById("resultsSummary"),
+        exportModelButton: document.getElementById("exportModelButton"),
+        resetViewButton: document.getElementById("resetViewButton"),
+      };
+
+      // 3D Scene variables
+      let scene, camera, renderer, controls;
+      let tomogramVolume = null;
+      let flagellarMotors = [];
+      let isDataLoaded = false;
+      let isModelTrained = false;
+
+      // Learning rate slider update
+      elements.learningRate.addEventListener("input", function () {
+        elements.learningRateValue.textContent = this.value;
+      });
+
+      // Sample dataset selection
+      elements.sampleDataset.addEventListener("change", function () {
+        if (this.value) {
+          showLoading(
+            "Loading Dataset",
+            "Please wait while we prepare the sample data..."
+          );
+          // Simulate loading a dataset
+          setTimeout(() => {
+            loadSampleTomogram(this.value);
+            hideLoading();
+          }, 1500);
+        }
+      });
+
+      // Reset 3D view
+      elements.resetViewButton.addEventListener("click", function () {
+        if (controls) {
+          controls.reset();
+        }
+      });
+
+      // File upload handling
+      elements.fileUpload.addEventListener("change", function (e) {
+        if (e.target.files.length > 0) {
+          const file = e.target.files[0];
+          const fileName = file.name;
+
+          // Check if it's a supported format (just for demo, not actually parsing)
+          if (fileName.endsWith(".mrc") || fileName.endsWith(".hdf")) {
+            showLoading(
+              "Processing Tomogram",
+              "Uploading and processing your file..."
+            );
+
+            // Simulate file processing
+            setTimeout(() => {
+              loadUserTomogram(file);
+              hideLoading();
+            }, 2000);
+          } else {
+            alert("Please upload a .mrc or .hdf file format.");
+          }
+        }
+      });
+
+      // Slice position slider
+      elements.slicePosition.addEventListener("input", function () {
+        if (tomogramVolume) {
+          updateTomogramSlice(this.value / 100);
+        }
+      });
+
+      // Model architecture change
+      elements.modelArchitecture.addEventListener("change", function () {
+        elements.infoArchitecture.textContent = getArchitectureName(this.value);
+        updateModelArchitectureVisualization(this.value);
+      });
+
+      // Train button click
+      elements.trainButton.addEventListener("click", function () {
+        if (!isDataLoaded) {
+          alert("Please load a tomogram dataset first.");
+          return;
+        }
+
+        elements.trainingResults.classList.remove("hidden");
+        elements.resultsPlaceholder.classList.add("hidden");
+        elements.detectionResults.classList.add("hidden");
+
+        runModelTraining();
+      });
+
+      // Detect button click
+      elements.detectButton.addEventListener("click", function () {
+        if (!isModelTrained) {
+          alert("Please train the model first.");
+          return;
+        }
+
+        showLoading(
+          "Detecting Motors",
+          "Running detection on the current tomogram..."
+        );
+
+        // Simulate detection process
+        setTimeout(() => {
+          runMotorDetection();
+          hideLoading();
+        }, 2000);
+      });
+
+      // Initialize 3D scene
+      function initTomogramVisualization() {
+        // Clear the placeholder
+        elements.tomogramPlaceholder.style.display = "none";
+
+        // Create scene
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(
+          document.documentElement.classList.contains("dark")
+            ? 0x1e1e1e
+            : 0xf3f4f6
+        );
+
+        // Create camera
+        camera = new THREE.PerspectiveCamera(
+          45,
+          elements.tomogramContainer.clientWidth /
+            elements.tomogramContainer.clientHeight,
+          0.1,
+          1000
+        );
+        camera.position.z = 5;
+
+        // Create renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(
+          elements.tomogramContainer.clientWidth,
+          elements.tomogramContainer.clientHeight
+        );
+
+        // Add renderer to container
+        if (elements.tomogramContainer.querySelector("canvas")) {
+          elements.tomogramContainer.removeChild(
+            elements.tomogramContainer.querySelector("canvas")
+          );
+        }
+        elements.tomogramContainer.appendChild(renderer.domElement);
+
+        // Add camera controls
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.25;
+
+        // Add ambient light
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        // Add directional light
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(1, 1, 1);
+        scene.add(directionalLight);
+
+        // Start animation loop
+        animate();
+
+        // Show slice controls
+        elements.tomogramSliceControls.style.opacity = 1;
+
+        // Handle resize
+        window.addEventListener("resize", onWindowResize);
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+
+      function onWindowResize() {
+        if (camera && renderer) {
+          camera.aspect =
+            elements.tomogramContainer.clientWidth /
+            elements.tomogramContainer.clientHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(
+            elements.tomogramContainer.clientWidth,
+            elements.tomogramContainer.clientHeight
+          );
+        }
+      }
+
+      // Load sample tomogram data
+      function loadSampleTomogram(sampleId) {
+        // Initialize 3D scene if not already done
+        if (!scene) {
+          initTomogramVisualization();
+        } else {
+          // Clear existing volume
+          if (tomogramVolume) {
+            scene.remove(tomogramVolume);
+          }
+          // Clear detected motors
+          clearDetectedMotors();
+        }
+
+        // Create a simulated tomogram volume (cube with layers)
+        tomogramVolume = createSampleTomogramVolume(sampleId);
+        scene.add(tomogramVolume);
+
+        // Reset view to show the full volume
+        camera.position.set(0, 0, 5);
+        controls.reset();
+
+        // Enable training
+        isDataLoaded = true;
+        elements.resultsSummary.textContent =
+          "Data loaded - Ready for training";
+      }
+
+      // Create a sample tomogram volume for visualization
+      function createSampleTomogramVolume(sampleId) {
+        const group = new THREE.Group();
+
+        // Outer wireframe to show volume boundaries
+        const geometry = new THREE.BoxGeometry(2, 2, 2);
+        const edges = new THREE.EdgesGeometry(geometry);
+        const line = new THREE.LineSegments(
+          edges,
+          new THREE.LineBasicMaterial({ color: 0x5d5cde })
+        );
+        group.add(line);
+
+        // Create slice planes
+        const sliceGeometry = new THREE.PlaneGeometry(2, 2);
+        const materials = [];
+
+        // Create different slice patterns for each sample
+        let sliceColors, sliceCount;
+
+        switch (sampleId) {
+          case "sample1": // E. coli
+            sliceColors = [0xe0e0e0, 0xd0d0d0, 0xc0c0c0];
+            sliceCount = 7;
+            break;
+          case "sample2": // Salmonella
+            sliceColors = [0xd8e0e8, 0xc8d0d8, 0xb8c0c8];
+            sliceCount = 9;
+            break;
+          case "sample3": // Vibrio
+            sliceColors = [0xe8e0d8, 0xd8d0c8, 0xc8c0b8];
+            sliceCount = 5;
+            break;
+          default:
+            sliceColors = [0xe0e0e0, 0xd0d0d0, 0xc0c0c0];
+            sliceCount = 7;
+        }
+
+        const sliceStep = 2 / (sliceCount - 1);
+
+        for (let i = 0; i < sliceCount; i++) {
+          const z = -1 + i * sliceStep;
+          const colorIndex = i % sliceColors.length;
+
+          const material = new THREE.MeshBasicMaterial({
+            color: sliceColors[colorIndex],
+            transparent: true,
+            opacity: 0.7,
+            side: THREE.DoubleSide,
+          });
+
+          materials.push(material);
+
+          const slice = new THREE.Mesh(sliceGeometry, material);
+          slice.position.z = z;
+          slice.userData.isSlice = true;
+          slice.userData.index = i;
+          slice.userData.originalZ = z;
+
+          group.add(slice);
+        }
+
+        // Store materials reference for later updating
+        group.userData.sliceMaterials = materials;
+
+        return group;
+      }
+
+      // Update tomogram slice visibility based on slider
+      function updateTomogramSlice(position) {
+        if (!tomogramVolume) return;
+
+        const slices = tomogramVolume.children.filter(
+          (child) => child.userData && child.userData.isSlice
+        );
+
+        slices.forEach((slice) => {
+          // Calculate distance from current position
+          const slicePosition = slice.userData.index / (slices.length - 1);
+          const distance = Math.abs(position - slicePosition);
+
+          // Set opacity based on distance from current slice position
+          const opacity = distance < 0.1 ? 0.9 : 0.1;
+          slice.material.opacity = opacity;
+
+          // Highlight the current slice
+          if (distance < 0.05) {
+            slice.material.color.set(0x5d5cde);
+          } else {
+            // Reset to original color
+            const colorIndex = slice.userData.index % 3;
+            slice.material.color.set(
+              [0xe0e0e0, 0xd0d0d0, 0xc0c0c0][colorIndex]
+            );
+          }
+        });
+      }
+
+      // Handle user uploaded tomogram
+      function loadUserTomogram(file) {
+        // In a real application, you would parse the MRC or HDF file
+        // For this demo, we'll just create a sample volume
+
+        // Initialize 3D scene if not already done
+        if (!scene) {
+          initTomogramVisualization();
+        } else {
+          // Clear existing volume
+          if (tomogramVolume) {
+            scene.remove(tomogramVolume);
+          }
+          // Clear detected motors
+          clearDetectedMotors();
+        }
+
+        // Create a custom tomogram based on file name
+        tomogramVolume = createSampleTomogramVolume("sample1");
+        scene.add(tomogramVolume);
+
+        // Reset view to show the full volume
+        camera.position.set(0, 0, 5);
+        controls.reset();
+
+        // Enable training
+        isDataLoaded = true;
+        elements.resultsSummary.textContent = `Data loaded: ${file.name}`;
+      }
+
+      // Run model training
+      function runModelTraining() {
+        isModelTrained = false;
+        elements.detectButton.disabled = true;
+        elements.detectButton.classList.add(
+          "cursor-not-allowed",
+          "bg-gray-400"
+        );
+        elements.detectButton.classList.remove(
+          "bg-primary",
+          "hover:bg-secondary"
+        );
+
+        elements.trainingLog.innerHTML = "";
+        elements.trainingProgressBar.style.width = "0%";
+        elements.trainingEpoch.textContent = "Epoch: 0/100";
+        elements.trainingLoss.textContent = "Loss: N/A";
+
+        // Log initialization
+        logTrainingMessage(
+          "Initializing 3D CNN for flagellar motor detection..."
+        );
+
+        // Simulate training epochs
+        let epoch = 0;
+        const totalEpochs = 100;
+        const trainingInterval = setInterval(() => {
+          epoch++;
+          const progress = (epoch / totalEpochs) * 100;
+          elements.trainingProgressBar.style.width = `${progress}%`;
+
+          const loss = (1 - (epoch / totalEpochs) * 0.8).toFixed(4);
+          elements.trainingEpoch.textContent = `Epoch: ${epoch}/${totalEpochs}`;
+          elements.trainingLoss.textContent = `Loss: ${loss}`;
+
+          if (epoch % 10 === 0 || epoch === totalEpochs) {
+            logTrainingMessage(
+              `Epoch ${epoch}/${totalEpochs}: loss=${loss}, accuracy=${(
+                (epoch / totalEpochs) *
+                0.9
+              ).toFixed(4)}`
+            );
+          }
+
+          if (epoch === totalEpochs) {
+            clearInterval(trainingInterval);
+            logTrainingMessage("Training complete! Model ready for detection.");
+
+            // Update metrics
+            elements.infoPrecision.textContent = "0.87";
+            elements.infoRecall.textContent = "0.82";
+
+            // Enable detection and export
+            isModelTrained = true;
+            elements.detectButton.disabled = false;
+            elements.detectButton.classList.remove(
+              "cursor-not-allowed",
+              "bg-gray-400"
+            );
+            elements.detectButton.classList.add(
+              "bg-primary",
+              "hover:bg-secondary"
+            );
+            elements.exportModelButton.disabled = false;
+            elements.exportModelButton.classList.remove("cursor-not-allowed");
+
+            elements.resultsSummary.textContent =
+              "Model trained - Ready for detection";
+          }
+        }, 100);
+      }
+
+      // Log training messages
+      function logTrainingMessage(message) {
+        const logItem = document.createElement("div");
+        logItem.textContent = message;
+        elements.trainingLog.appendChild(logItem);
+        elements.trainingLog.scrollTop = elements.trainingLog.scrollHeight;
+      }
+
+      // Run flagellar motor detection
+      function runMotorDetection() {
+        // Hide training results and show detection results
+        elements.trainingResults.classList.add("hidden");
+        elements.detectionResults.classList.remove("hidden");
+
+        // Clear previous detections
+        clearDetectedMotors();
+        elements.detectionList.innerHTML = "";
+
+        // Simulate detection process
+        const numMotors = Math.floor(Math.random() * 3) + 2; // 2-4 motors
+
+        // Create detection markers and list items
+        for (let i = 0; i < numMotors; i++) {
+          // Random position within the volume
+          const x = Math.random() * 1.4 - 0.7;
+          const y = Math.random() * 1.4 - 0.7;
+          const z = Math.random() * 1.4 - 0.7;
+
+          // Create a sphere to mark the detection
+          const geometry = new THREE.SphereGeometry(0.1, 16, 16);
+          const material = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+          const sphere = new THREE.Mesh(geometry, material);
+          sphere.position.set(x, y, z);
+
+          // Add to scene
+          scene.add(sphere);
+          flagellarMotors.push(sphere);
+
+          // Add to detection list
+          const listItem = document.createElement("div");
+          listItem.className =
+            "p-2 border border-gray-300 dark:border-gray-600 rounded-md";
+          listItem.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="font-medium">Motor #${i + 1}</span>
+                        <span class="text-sm text-gray-500 dark:text-gray-400">Confidence: ${(
+                          Math.random() * 0.2 +
+                          0.8
+                        ).toFixed(2)}</span>
+                    </div>
+                    <div class="text-sm mt-1">
+                        Position: (${x.toFixed(2)}, ${y.toFixed(
+            2
+          )}, ${z.toFixed(2)})
+                    </div>
+                `;
+
+          // Add click behavior to focus on the motor
+          listItem.addEventListener("click", () => {
+            // Focus camera on this motor
+            const target = new THREE.Vector3(x, y, z);
+            const distance = 3;
+            const direction = new THREE.Vector3()
+              .subVectors(camera.position, target)
+              .normalize();
+
+            camera.position.copy(
+              direction.multiplyScalar(distance).add(target)
+            );
+            controls.target.copy(target);
+          });
+
+          elements.detectionList.appendChild(listItem);
+        }
+
+        // Update results summary
+        elements.resultsSummary.textContent = `${numMotors} motors detected`;
+      }
+
+      // Clear detected motor markers
+      function clearDetectedMotors() {
+        for (const motor of flagellarMotors) {
+          scene.remove(motor);
+        }
+        flagellarMotors = [];
+      }
+
+      // Update model architecture visualization based on selection
+      function updateModelArchitectureVisualization(architecture) {
+        const container = document.getElementById(
+          "modelArchitectureVisualization"
+        );
+        container.innerHTML = "";
+
+        const flexContainer = document.createElement("div");
+        flexContainer.className = "flex space-x-1";
+
+        // Default 3D CNN architecture
+        let layers = [
+          { name: "Input", color: "bg-blue-500" },
+          { name: "Conv3D", color: "bg-green-500" },
+          { name: "Conv3D", color: "bg-green-500" },
+          { name: "Pool", color: "bg-yellow-500" },
+          { name: "Conv3D", color: "bg-green-500" },
+          { name: "Conv3D", color: "bg-green-500" },
+          { name: "Pool", color: "bg-yellow-500" },
+          { name: "Dense", color: "bg-purple-500" },
+          { name: "Dense", color: "bg-purple-500" },
+          { name: "Output", color: "bg-red-500" },
+        ];
+
+        // Customize architecture based on selection
+        if (architecture === "unet") {
+          layers = [
+            { name: "Input", color: "bg-blue-500" },
+            { name: "Conv3D", color: "bg-green-500" },
+            { name: "Pool", color: "bg-yellow-500" },
+            { name: "Conv3D", color: "bg-green-500" },
+            { name: "Pool", color: "bg-yellow-500" },
+            { name: "Conv3D", color: "bg-green-500" },
+            { name: "UpConv", color: "bg-indigo-500" },
+            { name: "Concat", color: "bg-orange-500" },
+            { name: "Conv3D", color: "bg-green-500" },
+            { name: "UpConv", color: "bg-indigo-500" },
+            { name: "Output", color: "bg-red-500" },
+          ];
+        } else if (architecture === "resnet") {
+          layers = [
+            { name: "Input", color: "bg-blue-500" },
+            { name: "Conv3D", color: "bg-green-500" },
+            { name: "ResBlock", color: "bg-teal-500" },
+            { name: "ResBlock", color: "bg-teal-500" },
+            { name: "Pool", color: "bg-yellow-500" },
+            { name: "ResBlock", color: "bg-teal-500" },
+            { name: "ResBlock", color: "bg-teal-500" },
+            { name: "GAP", color: "bg-pink-500" },
+            { name: "Dense", color: "bg-purple-500" },
+            { name: "Output", color: "bg-red-500" },
+          ];
+        }
+
+        // Create layer elements
+        layers.forEach((layer) => {
+          const layerElem = document.createElement("div");
+          layerElem.className = `h-16 w-12 ${layer.color} rounded flex items-center justify-center text-white text-xs`;
+          layerElem.textContent = layer.name;
+          flexContainer.appendChild(layerElem);
+        });
+
+        container.appendChild(flexContainer);
+      }
+
+      // Helper to get architecture display name
+      function getArchitectureName(value) {
+        const names = {
+          "3dcnn": "3D CNN",
+          unet: "3D U-Net",
+          resnet: "3D ResNet",
+        };
+        return names[value] || value;
+      }
+
+      // Show loading overlay
+      function showLoading(title, message) {
+        elements.loadingTitle.textContent = title;
+        elements.loadingMessage.textContent = message;
+        elements.loadingOverlay.classList.remove("hidden");
+      }
+
+      // Hide loading overlay
+      function hideLoading() {
+        elements.loadingOverlay.classList.add("hidden");
+      }
+
+      // Initialize model architecture visualization
+      updateModelArchitectureVisualization("3dcnn");
+    </script>
+  </body>
+</html>
